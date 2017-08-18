@@ -1,0 +1,61 @@
+@app.task(queue="generic")
+def container_control():
+
+    # Bildirim aldýðýmýz, ziyaret anomalisi bulunan konteynerlerin takibi için
+    # aþaðýdaki adýmlarýn takip edilmesi öngörülmüþtür.Bildirim aldýðýmýz,ziyaret anomalisi
+    # bulunan konteynerlerin takibi için aþaðýdaki adýmlarýn takip edilmesi öngörülmüþtür.
+    from evrekaTest.models import Bin, BinReport, BinSensorRecord, Route, RouteDetailRecord
+    from evrekaTest.utils import calculate_route_detail
+
+    bins = Bin.objects.all()
+    threshold = 1
+
+    for bin in bins:
+        try:
+            route_detail_record = RouteDetailRecord.objects.filter(bin=bin).latest('detail_id')
+        except RouteDetailRecord.DoesNotExist:
+            route_detail_record = None
+
+        if not route_detail_record:
+            continue
+
+        route_detail = calculate_route_detail([route_detail_record.route])
+
+        print route_detail
+
+        if bin.bin_id in route_detail.visit_visited:
+            bin_report_count = BinReport.objects.filter(bin=bin).count()
+            if bin_report_count > 4:
+                print bin.id, " sensoru takip edilecek"
+
+        elif bin.bin_id in route_detail.notvisit_visited: #blue
+            fulness_rate_before_route = bin.get_last_record_before_route_created(route_detail_record.route)
+            route = Route.objects.filter(route_id=route_detail_record.route).latest()
+            route_create_time = route.date
+
+            fullness_rate = BinSensorRecord.objects.filter(bin=bin).latest('fixed_time').fullness_rate
+
+            if fulness_rate_before_route == fullness_rate:
+                pass
+            elif fullness_rate > threshold > fulness_rate_before_route:
+                print bin.id, " sensoru veri kacirmis"
+            elif fullness_rate < fulness_rate_before_route:
+                print bin.id, " sorunlu, keyfi toplama, yapay doluluk"
+            elif threshold > fullness_rate > fulness_rate_before_route:
+                pass
+
+            pre_route = BinSensorRecord.objects.filter(
+                bin=bin,
+                create_time__lt=route.date,
+                create_time__gt=route.date - timedelta(hours=12)
+            ).latest("fixed_time")
+
+            #if int(pre_route.fullness_rate * 100) >= 0:
+                #new_row["fill_rate_pre_route"] = int(pre_route.fullness_rate * 100)
+                #row.fill_rate_pre_route = new_row["fill_rate_pre_route"]
+
+        elif bin.bin_id in route_detail.visit_notvisited: #red, yellow, brown
+            pass
+
+        break
+        return
